@@ -1,0 +1,2 @@
+python-dotenv==0.18.0
+ftrack-python-api==2.5.0
