@@ -31,6 +31,16 @@ def getEntityById(entity_type,entity_id):
 	return session.query("{0} where id is {1}".format(entity_type,entity_id)).first()
 
 
+def sendToGoogle(shot,step,status):
+
+	app_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),"utils/sendStatusToGoogleSheets/app.py")
+	if os.path.exists(app_path):
+		cmd = "py \"{0}\" \"{1}\" \"{2}\" \"{3}\"".format(app_path,shot,step,status)
+		os.system(cmd)
+
+	return 
+
+
 def my_callback(event):
 	
 	'''Event callback printing all new or updated entities.'''
@@ -49,12 +59,18 @@ def my_callback(event):
 				if "statusid" in entity["changes"]:
 					status = getEntityById("Status",entity["changes"]["statusid"]['new'])
 					print("New status Change detected: " + str(entity["changes"]["statusid"]))
-					if task["name"] in ["03_3D_Blocking","04_3D_Polish"] and status["name"] in ["Hum Review","Alan Review","Pending Review","Hum Approved"]:
-						versions = session.query('AssetVersion where task_id is "{0}"'.format(task["id"])).all()
-						print("found {0} assetVersions for this task!".format(len(versions)))
-						if len(versions) > 0:
-							version = versions[-1]
-							downloadVersion(version["id"],shot["name"])
+					if task["name"] in ["03_3D_Blocking","04_3D_Polish"]:
+
+						if status["name"] in ["Hum Review","Alan Review","Pending Review","Hum Approved"]:
+							versions = session.query('AssetVersion where task_id is "{0}"'.format(task["id"])).all()
+							print("found {0} assetVersions for this task!".format(len(versions)))
+							if len(versions) > 0:
+								version = versions[-1]
+								downloadVersion(version["id"],shot["name"])
+
+						sendToGoogle(shot["name"],task["name"].split("_")[-1].lower(),status["name"])
+
+
 
 if __name__ == '__main__':
 	
