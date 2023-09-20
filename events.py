@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 #Load the environment variables
 load_dotenv()
 
-def downloadVersion(versionId,shot_name):
+def downloadVersion(versionId,shot_name,replace = True):
 
 	print("downloading version with id {0}".format(versionId))
 	downloadRootPath = os.getenv("PLAYBLAST_PATH")
@@ -23,7 +23,9 @@ def downloadVersion(versionId,shot_name):
 			downloadPath = os.path.join(downloadRootPath, fileName)
 			url = component.get("component_locations")[0].get("url")["value"]
 			print("downloading to`{0}".format(downloadPath))
-			urllib.request.urlretrieve(url,downloadPath)
+			if replace or not os.path.exists(downloadPath):
+				urllib.request.urlretrieve(url,downloadPath)
+				break
 
 
 def getEntityById(entity_type,entity_id):
@@ -40,6 +42,23 @@ def sendToGoogle(shot,step,status):
 
 	return 
 
+
+def getCompletedScenes():
+
+	tasks = session.query('Task where name in ("03_3D_Blocking","04_3D_Polish") and status.name is "Completed" and project.name is "aba_e_sua_banda"').all()
+	print(len(tasks))
+
+	for task in tasks:
+
+		shot = task["parent"]
+		versions = session.query('AssetVersion where task_id is "{0}"'.format(task["id"])).all()
+		print("found {0} assetVersions for this task!".format(len(versions)))
+		if len(versions) > 0:
+			version = versions[-1]
+			downloadVersion(version["id"],shot["name"],replace = False)
+			break
+
+	return
 
 def my_callback(event):
 	
@@ -77,7 +96,8 @@ if __name__ == '__main__':
 	# Subscribe to events with the update topic.
 	print("Starting Ftrack events listener...")
 	session = fa.Session(auto_connect_event_hub=True)
-	session.event_hub.subscribe('topic=ftrack.update', my_callback)
+	getCompletedScenes()
+	#session.event_hub.subscribe('topic=ftrack.update', my_callback)
 	# Wait for events to be received and handled.
-	session.event_hub.wait()
+	#session.event_hub.wait()
 
