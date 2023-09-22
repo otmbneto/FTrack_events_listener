@@ -44,9 +44,7 @@ def sendToGoogle(shot,step,status):
 
 	return 
 
-
 def sendToGoogleSheet(data):
-
 
 	fData = data.replace("\"","\\\"") 
 	app_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),"utils/sendToGoogleSheet/app.py")
@@ -83,15 +81,18 @@ def my_callback(event):
 
 			if entity["action"] == "update":
 
+				isShot = False
 				shots = [s for s in entity["parents"] if s["entity_type"] == "Shot"]
 				shot = shots[-1] if len(shots) > 0 else None
 				if shot is not None:
 					shot = getEntityById("Shot",shot["entityId"])
+					isShot = True
 				task = getEntityById("Task",entity["entityId"])
-
 
 				if entity["changes"] is not None and "statusid" in entity["changes"]:
 					status = getEntityById("Status",entity["changes"]["statusid"]['new'])
+					assignees = ",".join(getAssignee(task))
+					status_changes = sorted(task["status_changes"], key=lambda d: d['date'])
 					print("New status Change detected: " + str(entity["changes"]["statusid"]))
 					if task["name"] in ["03_3D_Blocking","04_3D_Polish"]:
 
@@ -106,10 +107,12 @@ def my_callback(event):
 						sendToGoogleSheet(json.dumps(data))
 					elif task["name"] in ["03_Render","07_Render","10_Comp","07_Comp","10.01_Comp"]:
 
-						assignees = ",".join(getAssignee(task))
-						status_changes = sorted(task["status_changes"], key=lambda d: d['date'])
 						data = {"shot": shot["name"],"task":task["name"].split("_")[-1].lower(),"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID2"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"render"}
 						sendToGoogleSheet(json.dumps(data))
+
+					#data = {"shot": shot["name"],"task":task["name"].split("_")[-1].lower(),"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID3"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"geral","description":task["description"],"task_type":task["type"]["name"]}
+					#sendToGoogleSheet(json.dumps(data))
+
 
 
 def getAssignee(task):
@@ -132,7 +135,7 @@ if __name__ == '__main__':
 	session = fa.Session(auto_connect_event_hub=True)
 	t = threading.Thread(target=getCompletedScenes,args=(session,))
 	t.start()
-	#getCompletedScenes(session)
+
 	session.event_hub.subscribe('topic=ftrack.update', my_callback)
 	# Wait for events to be received and handled.
 	session.event_hub.wait()
