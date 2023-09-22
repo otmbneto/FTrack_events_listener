@@ -1,5 +1,7 @@
 import os
 import urllib
+import threading
+import json
 import ftrack_api as fa
 from dotenv import load_dotenv
 
@@ -25,7 +27,7 @@ def downloadVersion(versionId,shot_name,replace = True):
 			print("downloading to`{0}".format(downloadPath))
 			if replace or not os.path.exists(downloadPath):
 				urllib.request.urlretrieve(url,downloadPath)
-				break
+			break
 
 
 def getEntityById(entity_type,entity_id):
@@ -43,20 +45,32 @@ def sendToGoogle(shot,step,status):
 	return 
 
 
-def getCompletedScenes():
+def sendToGoogleSheet(data):
 
-	tasks = session.query('Task where name in ("03_3D_Blocking","04_3D_Polish") and status.name is "Completed" and project.name is "aba_e_sua_banda"').all()
+
+	fData = data.replace("\"","\\\"") 
+	app_path = os.path.join(os.path.dirname(os.path.realpath(__file__)),"utils/sendToGoogleSheet/app.py")
+	if os.path.exists(app_path):
+		cmd = "py \"{0}\" \"{1}\"".format(app_path,fData)
+		print(cmd)
+		os.system(cmd)	
+
+	return
+
+def getCompletedScenes(session):
+
+	tasks = session.query('Task where name is "04_3D_Polish" and status.name is "Completed" and project.name is "aba_e_sua_banda"').all() + session.query('Task where name is "03_3D_Blocking" and status.name is "Completed" and project.name is "aba_e_sua_banda"').all()
 	print(len(tasks))
 
 	for task in tasks:
 
+		print(task["name"])
 		shot = task["parent"]
 		versions = session.query('AssetVersion where task_id is "{0}"'.format(task["id"])).all()
 		print("found {0} assetVersions for this task!".format(len(versions)))
 		if len(versions) > 0:
 			version = versions[-1]
 			downloadVersion(version["id"],shot["name"],replace = False)
-			break
 
 	return
 
@@ -74,8 +88,9 @@ def my_callback(event):
 				if shot is not None:
 					shot = getEntityById("Shot",shot["entityId"])
 				task = getEntityById("Task",entity["entityId"])
-				
-				if "statusid" in entity["changes"]:
+
+
+				if entity["changes"] is not None and "statusid" in entity["changes"]:
 					status = getEntityById("Status",entity["changes"]["statusid"]['new'])
 					print("New status Change detected: " + str(entity["changes"]["statusid"]))
 					if task["name"] in ["03_3D_Blocking","04_3D_Polish"]:
@@ -87,8 +102,27 @@ def my_callback(event):
 								version = versions[-1]
 								downloadVersion(version["id"],shot["name"])
 
-						sendToGoogle(shot["name"],task["name"].split("_")[-1].lower(),status["name"])
+						data = {"shot": shot["name"],"task":task["name"].split("_")[-1].lower(),"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID"),"sheet_name":"Shots","spreadsheet_type": "animation"}
+						sendToGoogleSheet(json.dumps(data))
+					elif task["name"] in ["03_Render","07_Render","10_Comp","07_Comp","10.01_Comp"]:
 
+						assignees = ",".join(getAssignee(task))
+						status_changes = sorted(task["status_changes"], key=lambda d: d['date'])
+						data = {"shot": shot["name"],"task":task["name"].split("_")[-1].lower(),"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID2"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"render"}
+						sendToGoogleSheet(json.dumps(data))
+
+
+def getAssignee(task):
+
+	users = session.query(
+		'select first_name, last_name from User '
+		'where assignments any (context_id = "{0}")'.format(task['id'])
+	)
+
+	assignees = []
+	for user in users:
+		assignees.append(str(user['first_name']) + " " + str(user['last_name']))
+	return assignees
 
 
 if __name__ == '__main__':
@@ -96,8 +130,10 @@ if __name__ == '__main__':
 	# Subscribe to events with the update topic.
 	print("Starting Ftrack events listener...")
 	session = fa.Session(auto_connect_event_hub=True)
-	getCompletedScenes()
-	#session.event_hub.subscribe('topic=ftrack.update', my_callback)
+	t = threading.Thread(target=getCompletedScenes,args=(session,))
+	t.start()
+	#getCompletedScenes(session)
+	session.event_hub.subscribe('topic=ftrack.update', my_callback)
 	# Wait for events to be received and handled.
-	#session.event_hub.wait()
+	session.event_hub.wait()
 
