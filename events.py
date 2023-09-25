@@ -23,11 +23,18 @@ def downloadVersion(versionId,shot_name,replace = True):
 			fileName = shot_name + fileType
 			# Calculate the full download path and URL to pull from
 			downloadPath = os.path.join(downloadRootPath, fileName)
-			url = component.get("component_locations")[0].get("url")["value"]
-			print("downloading to`{0}".format(downloadPath))
-			if replace or not os.path.exists(downloadPath):
-				urllib.request.urlretrieve(url,downloadPath)
-			break
+			
+			component_locations = component.get("component_locations")
+
+			if len(component_locations) > 0:
+				try:
+					url = component_locations[0].get("url")["value"]
+				except:
+					continue
+				print("downloading to`{0}".format(downloadPath))
+				if replace or not os.path.exists(downloadPath):
+					urllib.request.urlretrieve(url,downloadPath)
+				break
 
 
 def getEntityById(entity_type,entity_id):
@@ -110,8 +117,8 @@ def my_callback(event):
 						data = {"shot": shot["name"],"task":task["name"].split("_")[-1].lower(),"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID2"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"render"}
 						sendToGoogleSheet(json.dumps(data))
 
-					#data = {"shot": shot["name"],"task":task["name"].split("_")[-1].lower(),"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID3"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"geral","description":task["description"],"task_type":task["type"]["name"]}
-					#sendToGoogleSheet(json.dumps(data))
+					data = {"shot": shot["name"],"task":task["name"],"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID3"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"geral","description":task["description"],"task_type":task["type"]["name"]}
+					sendToGoogleSheet(json.dumps(data))
 
 
 
