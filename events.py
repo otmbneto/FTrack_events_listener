@@ -33,7 +33,16 @@ def downloadVersion(versionId,shot_name,replace = True):
 					continue
 				print("downloading to`{0}".format(downloadPath))
 				if replace or not os.path.exists(downloadPath):
-					urllib.request.urlretrieve(url,downloadPath)
+					tries = 3
+					while(tries > 0):
+						try:
+							urllib.request.urlretrieve(url,downloadPath)
+							break
+						except Exception as e:
+							tries -= 1
+							print(e)
+							continue
+
 				break
 
 
