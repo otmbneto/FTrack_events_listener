@@ -88,6 +88,20 @@ def getCompletedScenes(session):
 
 	return
 
+def getCompRenderInfo(session):
+
+	tasks = session.query('Task where name in ("03_Render","07_Render","10_Comp","07_Comp","10.01_Comp") and status.name is "Completed" and project.name is "aba_e_sua_banda"').all()
+
+	for task in tasks:
+
+		status = task["status"]
+		shot = task["parent"]
+		assignees = ",".join(getAssignee(task))
+		status_changes = sorted(task["status_changes"], key=lambda d: d['date'])
+		data = {"shot": shot["name"],"task":task["name"].split("_")[-1].lower(),"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID2"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"render"}
+		sendToGoogleSheet(json.dumps(data))
+
+
 def my_callback(event):
 	
 	'''Event callback printing all new or updated entities.'''
@@ -127,6 +141,10 @@ def my_callback(event):
 						sendToGoogleSheet(json.dumps(data))
 
 					data = {"shot": shot["name"],"task":task["name"],"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID3"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"geral","description":task["description"],"task_type":task["type"]["name"]}
+					data["fps"] = shot["custom_attributes"]["fps"]
+					data["start"] = task["start_date"].format("YYYY-MM-DD") if task["start_date"] is not None else ""
+					data["end"] = task["end_date"].format("YYYY-MM-DD") if task["end_date"] is not None else ""
+
 					sendToGoogleSheet(json.dumps(data))
 
 
@@ -149,8 +167,11 @@ if __name__ == '__main__':
 	# Subscribe to events with the update topic.
 	print("Starting Ftrack events listener...")
 	session = fa.Session(auto_connect_event_hub=True)
-	t = threading.Thread(target=getCompletedScenes,args=(session,))
-	t.start()
+	#t = threading.Thread(target=getCompletedScenes,args=(session,))
+	#t.start()
+
+	#t2 = threading.Thread(target=getCompRenderInfo,args=(session,))
+	#t2.start()
 
 	session.event_hub.subscribe('topic=ftrack.update', my_callback)
 	# Wait for events to be received and handled.
