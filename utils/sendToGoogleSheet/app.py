@@ -37,9 +37,12 @@ class ShotsSheet():
 
         return input_data["spreadsheet_id"]
 
-    def getSheetData(self,gid):
+    def getSheetData(self,gid,sheet_name="",pull=False):
 
-        return self.google_data[gid]
+        if pull:
+            return self.sheet.values().get(spreadsheetId = gid,range = sheet_name).execute()["values"] 
+
+        return self.google_data[gid] if gid in self.google_data.keys() else None
 
     def getImportantCollumns(self,gid):
 
@@ -78,7 +81,6 @@ class ShotsSheet():
             self.sequenceCol = 0
             self.description = 7
             self.startLine = 197
-
 
     def xl_rowcol_to_cell(self,row_num, col_num):
 
@@ -120,7 +122,6 @@ class ShotsSheet():
 
         for i in range(start_line,len(self.google_data[gid])):
 
-            print(task_name + " =? " + self.google_data[gid][i][self.taskCol])
             if task_name == self.google_data[gid][i][self.taskCol]:
 
                 return i
