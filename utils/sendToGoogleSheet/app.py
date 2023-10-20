@@ -107,6 +107,27 @@ class ShotsSheet():
 
         return col_str + str(row_num)
 
+    def findTaskPosition(self,gid,task_code,shot_code,start_at = 0,format=8):
+
+        i=start_at
+        print(self.google_data[gid][i])
+        while(self.taskCol < len(self.google_data[gid][i]) and task_code > self.google_data[gid][i][self.taskCol] and shot_code == self.google_data[gid][i][self.shotsCol]):
+
+            print(self.google_data[gid][i][self.taskCol])
+            i+=1
+
+        return i
+
+
+    def findShotPosition(self,gid,shot_code,start_at = 0):
+
+        i=start_at
+        while(shot_code > self.google_data[gid][i][self.shotsCol]):
+
+            i+=1
+
+        return i
+
 
     def findShot(self,gid,shot_code):
 
@@ -120,14 +141,58 @@ class ShotsSheet():
 
     def findTask(self,gid,task_name,start_line):
 
-        for i in range(start_line,len(self.google_data[gid])):
+        data = self.google_data[gid]
 
-            if task_name == self.google_data[gid][i][self.taskCol]:
+        if data:
 
-                return i
+            for i in range(start_line,len(data)):
+
+                if self.taskCol < len(data[i]) and task_name == data[i][self.taskCol]:
+
+                    return i
 
         return None
 
+    def insertEmptyRow(self, gid, row_index):
+        
+
+        # Determine the sheetId for the specified sheet name
+        spreadsheet_info = self.sheet.get(spreadsheetId=gid).execute()
+        sheet_id = None
+        for sheet in spreadsheet_info.get("sheets", []):
+            if sheet["properties"]["title"] == self.ftrack_data[gid]["sheet_name"]:
+                sheet_id = sheet["properties"]["sheetId"]
+                break
+
+        if sheet_id is None:
+            raise ValueError("Sheet not found: " + self.ftrack_data[gid]["sheet_name"])
+
+
+
+        # Determine the row where you want to insert the empty row
+        row_number = row_index + 1  # Google Sheets uses 1-based indexing
+
+        # Create a request to insert a new row below the specified row
+        request = {
+            "requests": [
+                {
+                    "insertDimension": {
+                        "range": {
+                            "sheetId": sheet_id,  # The ID of the sheet
+                            "dimension": "ROWS",
+                            "startIndex": row_number-1,
+                            "endIndex": row_number
+                        },
+                        "inheritFromBefore": False
+                    }
+                }
+            ]
+        }
+
+        # Send the batch update request to insert the empty row
+        self.sheet.batchUpdate(spreadsheetId=gid,body=request).execute()
+
+        return
 
     def update_value(self,gid,range_name,cells):
         """
@@ -152,9 +217,17 @@ class ShotsSheet():
 
     def setShotStatus(self,input_data):
 
+        print(input_data)
         gid = self.getSpreadsheets(input_data)
-        
         line = self.findShot(gid,self.ftrack_data[gid]["shot"])
+
+        if line is None:
+            print("Creating line")
+            if self.ftrack_data[gid]["spreadsheet_type"] == "geral":
+                line =self.findShotPosition(gid,self.ftrack_data[gid]["shot"],start_at=198)
+            else:
+                return
+
         if self.ftrack_data[gid]["spreadsheet_type"] == "animation":
             col = self.statusBlo if self.ftrack_data[gid]["task"] == "blocking" else self.statusPol
             srange = self.xl_rowcol_to_cell(line,col)
@@ -166,9 +239,16 @@ class ShotsSheet():
             self.update_value(gid,srange,[self.ftrack_data[gid]["assignees"],self.ftrack_data[gid]["status"],self.ftrack_data[gid]["date"]])
 
         elif self.ftrack_data[gid]["spreadsheet_type"] == "geral":
-            line = self.findTask(gid,self.ftrack_data[gid]["task"],line)
-            srange = self.xl_rowcol_to_cell(line,self.framesCol) + ":" + self.xl_rowcol_to_cell(line,self.dueDate)
-            cells = [self.ftrack_data[gid]["fps"],self.ftrack_data[gid]["assignees"],self.ftrack_data[gid]["task"],self.ftrack_data[gid]["status"],self.ftrack_data[gid]["task_type"],self.ftrack_data[gid]["description"],self.ftrack_data[gid]["start"],self.ftrack_data[gid]["end"]]
+            task_line = self.findTask(gid,self.ftrack_data[gid]["task"],line)
+            
+            if task_line is None:
+                line = self.findTaskPosition(gid,self.ftrack_data[gid]["task"],self.ftrack_data[gid]["shot"],start_at=line)
+                self.insertEmptyRow(gid,line)
+            else:
+                line = task_line
+
+            srange = self.xl_rowcol_to_cell(line,self.shotsCol) + ":" + self.xl_rowcol_to_cell(line,self.dueDate)
+            cells = [self.ftrack_data[gid]["shot"],self.ftrack_data[gid]["fps"],self.ftrack_data[gid]["assignees"],self.ftrack_data[gid]["task"],self.ftrack_data[gid]["status"],self.ftrack_data[gid]["task_type"],self.ftrack_data[gid]["description"],self.ftrack_data[gid]["start"],self.ftrack_data[gid]["end"]]
             self.update_value(gid,srange,cells)
 
 

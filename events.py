@@ -4,6 +4,7 @@ import threading
 import json
 import time
 import datetime
+import traceback
 import tempfile
 import copy
 import ftrack_api as fa
@@ -124,13 +125,17 @@ def getGeneralTaskInfo(session):
 				assignees = ",".join(getAssignee(task))
 				status_changes = sorted(task["status_changes"], key=lambda d: d['date'])
 				data = {"shot": shot["name"],"task":task["name"],"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID3"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"geral","description":task["description"],"task_type":task["type"]["name"]}
-				data["fps"] = shot["custom_attributes"]["fend"] - shot["custom_attributes"]["fstart"] + 1
+				
+				fstart = shot["custom_attributes"]["fstart"] if shot["custom_attributes"]["fstart"] is not None else 0
+				fend = shot["custom_attributes"]["fend"] if shot["custom_attributes"]["fend"] is not None else 1
+
+				data["fps"] = fend - fstart + 1
 				data["start"] = task["start_date"].format("YYYY-MM-DD") if task["start_date"] is not None else ""
 				data["end"] = task["end_date"].format("YYYY-MM-DD") if task["end_date"] is not None else ""
 				googleSheet.setShotStatus(data)
 				saveTxtFile("ftrack-general-tasks.txt",shot["name"] + "_" + task["name"])
 		except Exception as e:
-			print(e)
+			print(traceback.format_exc())
 			continue
 
 	print("End of generalTaskThread")
@@ -139,12 +144,20 @@ def getGeneralTaskInfo(session):
 def get_diff(old,new):
 
 	diff = []
+	print("Differences!!!")
 	for l in range(len(old)):
 
 		old[l] += [''] * (10 - len(old[l]))
+		if len(new) <= l:
+			print("new matrix is smaller")
+			break
 		new[l] += [''] * (len(old[l]) - len(new[l]))
 		if old[l] == new[l]:
 			continue
+		print("------------------------------")
+		print(old[l])
+		print(new[l])
+		print("\n")
 		diff.append(new[l])
 
 	return diff
@@ -164,8 +177,10 @@ def update_ftrack(data,session):
 
 		task = task[0]
 		shot = getEntityById("Shot",task["parent"]["id"])
-		if int(shot["custom_attributes"]["fend"]) != int(line[2]):
-			print("Changing Shot frame count! from {0} to {1}".format(int(shot["custom_attributes"]["fend"]),line[2]))
+		fend = shot["custom_attributes"]["fend"]
+		if fend is None or int(fend) != int(line[2]):
+			fend = int(fend) if fend is not None else str(fend)
+			print("Changing Shot frame count! from {0} to {1}".format(fend,line[2]))
 			shot["custom_attributes"]["fend"] = int(line[2])
 			somethingChanged = True
 
@@ -184,10 +199,10 @@ def update_ftrack(data,session):
 
 		if ",".join(getAssignee(task)) != line[3]:
 			print("Changing task assignees")
-			for user in getUsers(line[3]):
+			for user in getUsers(line[3].split(",")):
 				if not user["first_name"] + " " + user["last_name"] in ",".join(getAssignee(task)):
 					assignUser(user,commit=False)
-				somethingChanged = True
+					somethingChanged = True
 
 		start_date = task["start_date"].format("YYYY-MM-DD") if task["start_date"] is not None else ""
 		if start_date != line[8]:
@@ -214,19 +229,22 @@ def update_ftrack(data,session):
 def checkGoogleForChanges(session):
 
 	old_sheet = googleSheet.getSheetData(os.getenv("SPREADSHEET_ID3"),sheet_name = "Shots",pull = True)
-	while True:
-		time.sleep(10)
+	while not exit_flag.is_set():
+		time.sleep(300)
 		try:
 			new_sheet = googleSheet.getSheetData(os.getenv("SPREADSHEET_ID3"),sheet_name = "Shots",pull = True)
 			diff = get_diff(old_sheet,new_sheet)
-			print(len(diff))
+			print("Checking for updates! found {0}.".format(len(diff)))
 			if len(diff) > 0:
 				result = update_ftrack(diff,session)
-				if result:
-					old_sheet = copy.deepcopy(new_sheet)
+				#if result:
+				old_sheet = copy.deepcopy(new_sheet)
 		except Exception as e:
-			print(e)
+			print(traceback.format_exc())
 			continue
+
+	print("finishing checkGoogleForChanges thread!")
+	raise KeyboardInterrupt
 
 	return
 
@@ -294,7 +312,7 @@ def readTxtFile(txtName):
 	content = ""
 	temp_file = os.path.join(tempfile.gettempdir(),"ftrack_temp_files",txtName)
 	if os.path.exists(temp_file):
-		with open(temp_file) as f:
+		with open(temp_file,"r") as f:
 			content = f.read()
 	return content
 
@@ -318,6 +336,9 @@ def saveTxtFile(txtName,data):
 
 def getUsers(userlist):
 
+	if len(userlist) == 0:
+		return []
+
 	print('User where username in ("{0}")'.format("\",\"".join(userlist)))
 
 	# Initialize a list to store the matching users
@@ -325,10 +346,10 @@ def getUsers(userlist):
 
 	# Loop through the list of user full names and query users based on each name
 	for full_name in userlist:
-		first_name, last_name = full_name.split()  # Split the full name into first name and last name
+		first_name, last_name = full_name.split(" ")  # Split the full name into first name and last name
 		user = session.query('User where first_name is "{}" and last_name is "{}"'.format(first_name, last_name)).all()
 		if len(user) > 0:
-			matching_users.append(user)
+			matching_users.append(user[0])
 
 	return matching_users
 
@@ -346,25 +367,37 @@ def getAssignee(task):
 
 
 if __name__ == '__main__':
-	
-	# Subscribe to events with the update topic.
-	print("Starting Ftrack events listener...")
-	session = fa.Session(auto_connect_event_hub=True)
 
-	#t = threading.Thread(target=getCompletedScenes,args=(session,))
-	#t.start()
+	try:	
+		# Subscribe to events with the update topic.
+		print("Starting Ftrack events listener...")
+		session = fa.Session(auto_connect_event_hub=True)
 
-	#t2 = threading.Thread(target=getCompRenderInfo,args=(session,))
-	#t2.start() 
+		#t = threading.Thread(target=getCompletedScenes,args=(session,))
+		#t.start()
+
+		#t2 = threading.Thread(target=getCompRenderInfo,args=(session,))
+		#t2.start() 
 
 
-	t3 = threading.Thread(target=getGeneralTaskInfo,args=(session,))
-	t3.start()
+		t3 = threading.Thread(target=getGeneralTaskInfo,args=(session,))
+		t3.start()
 
-	t4 = threading.Thread(target=checkGoogleForChanges,args=(session,))
-	t4.start()
+		# Create a flag to signal the child thread to exit
+		exit_flag = threading.Event()
+		t4 = threading.Thread(target=checkGoogleForChanges,args=(session,))
+		t4.start()
 
-	session.event_hub.subscribe('topic=ftrack.update', my_callback)
-	# Wait for events to be received and handled.
-	session.event_hub.wait()
+		session.event_hub.subscribe('topic=ftrack.update', my_callback)
+		# Wait for events to be received and handled.
+		session.event_hub.wait()
+	except KeyboardInterrupt:
+	    # Catch Ctrl+C to gracefully exit
+	    print("Stopping child thread...")
+	    session.close()
+	    exit_flag.set()  # Set the flag to signal the child thread to exit
+	    t4.join()  # Wait for the child thread to exit
+
+	print("Main thread exiting.")
+
 
