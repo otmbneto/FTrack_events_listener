@@ -178,7 +178,7 @@ def update_ftrack(data,session):
 		task = task[0]
 		shot = getEntityById("Shot",task["parent"]["id"])
 		fend = shot["custom_attributes"]["fend"]
-		if fend is None or int(fend) != int(line[2]):
+		if fend == '' or fend is None or int(fend) != int(line[2]):
 			fend = int(fend) if fend is not None else str(fend)
 			print("Changing Shot frame count! from {0} to {1}".format(fend,line[2]))
 			shot["custom_attributes"]["fend"] = int(line[2])
@@ -201,7 +201,7 @@ def update_ftrack(data,session):
 			print("Changing task assignees")
 			for user in getUsers(line[3].split(",")):
 				if not user["first_name"] + " " + user["last_name"] in ",".join(getAssignee(task)):
-					assignUser(user,commit=False)
+					assignUser(task,user,commit=False)
 					somethingChanged = True
 
 		start_date = task["start_date"].format("YYYY-MM-DD") if task["start_date"] is not None else ""
@@ -288,7 +288,11 @@ def my_callback(event):
 						googleSheet.setShotStatus(data)
 
 					data = {"shot": shot["name"],"task":task["name"],"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID3"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"geral","description":task["description"],"task_type":task["type"]["name"]}
-					data["fps"] = shot["custom_attributes"]["fend"] - shot["custom_attributes"]["fstart"] + 1
+					
+					fstart = shot["custom_attributes"]["fstart"] if shot["custom_attributes"]["fstart"] is not None else 0
+					fend = shot["custom_attributes"]["fend"] if shot["custom_attributes"]["fend"] is not None else 1
+					data["fps"] = fend - fstart + 1
+					
 					data["start"] = task["start_date"].format("YYYY-MM-DD") if task["start_date"] is not None else ""
 					data["end"] = task["end_date"].format("YYYY-MM-DD") if task["end_date"] is not None else ""
 					googleSheet.setShotStatus(data)
@@ -380,8 +384,8 @@ if __name__ == '__main__':
 		#t2.start() 
 
 
-		t3 = threading.Thread(target=getGeneralTaskInfo,args=(session,))
-		t3.start()
+		#t3 = threading.Thread(target=getGeneralTaskInfo,args=(session,))
+		#t3.start()
 
 		# Create a flag to signal the child thread to exit
 		exit_flag = threading.Event()
