@@ -32,15 +32,29 @@ class ShotsSheet():
     def getSpreadsheets(self,input_data):
 
         self.ftrack_data[input_data["spreadsheet_id"]] = input_data
-        self.google_data[input_data["spreadsheet_id"]] = self.sheet.values().get(spreadsheetId = self.ftrack_data[input_data["spreadsheet_id"]]["spreadsheet_id"],range = self.ftrack_data[input_data["spreadsheet_id"]]["sheet_name"]).execute()["values"]
-        self.getImportantCollumns(input_data["spreadsheet_id"])
+        #self.google_data[input_data["spreadsheet_id"]] = self.sheet.values().get(spreadsheetId = self.ftrack_data[input_data["spreadsheet_id"]]["spreadsheet_id"],range = self.ftrack_data[input_data["spreadsheet_id"]]["sheet_name"]).execute()["values"]
+        self.google_data[input_data["spreadsheet_id"]] = self.getSpreadsheetsValues(self.ftrack_data[input_data["spreadsheet_id"]]["spreadsheet_id"],self.ftrack_data[input_data["spreadsheet_id"]]["sheet_name"])
+        if self.google_data[input_data["spreadsheet_id"]] is not None:
+            self.getImportantCollumns(input_data["spreadsheet_id"])
+            return input_data["spreadsheet_id"]
 
-        return input_data["spreadsheet_id"]
+
+    def getSpreadsheetsValues(self,spreadsheetId,srange):
+
+        values = None
+        try:
+            values = self.sheet.values().get(spreadsheetId = spreadsheetId,range = srange).execute() 
+        except Exception as e:
+            print(e)
+
+        return values
 
     def getSheetData(self,gid,sheet_name="",pull=False):
 
         if pull:
-            return self.sheet.values().get(spreadsheetId = gid,range = sheet_name).execute()["values"] 
+            #return self.sheet.values().get(spreadsheetId = gid,range = sheet_name).execute()["values"] 
+            values = self.getSpreadsheetsValues(gid,sheet_name) 
+            return values["values"] if values is not None else values
 
         return self.google_data[gid] if gid in self.google_data.keys() else None
 
@@ -217,30 +231,35 @@ class ShotsSheet():
 
     def setShotStatus(self,input_data):
 
+        result = False
         print(input_data)
         gid = self.getSpreadsheets(input_data)
-        line = self.findShot(gid,self.ftrack_data[gid]["shot"])
+        if gid is None:
+            print("Something went wrong when retrieving spreadsheet")
+            return -1
 
+        line = self.findShot(gid,self.ftrack_data[gid]["shot"])
         if line is None:
             print("Creating line")
             if self.ftrack_data[gid]["spreadsheet_type"] == "geral":
                 line =self.findShotPosition(gid,self.ftrack_data[gid]["shot"],start_at=198)
             else:
-                return
+                return -2 
 
         if self.ftrack_data[gid]["spreadsheet_type"] == "animation":
             col = self.statusBlo if self.ftrack_data[gid]["task"] == "blocking" else self.statusPol
             srange = self.xl_rowcol_to_cell(line,col)
-            self.update_value(gid,self.xl_rowcol_to_cell(line,col),[self.ftrack_data[gid]["status"]])
+            cells = [self.ftrack_data[gid]["status"]]
+            #self.update_value(gid,self.xl_rowcol_to_cell(line,col),[self.ftrack_data[gid]["status"]])
         elif self.ftrack_data[gid]["spreadsheet_type"] == "render":
             start_col = self.assigneeRender if self.ftrack_data[gid]["task"] == "render" else self.assigneeComp
             end_col = self.dateRender if self.ftrack_data[gid]["task"] == "render" else self.dateComp
             srange = self.xl_rowcol_to_cell(line,start_col) + ":" + self.xl_rowcol_to_cell(line,end_col)
-            self.update_value(gid,srange,[self.ftrack_data[gid]["assignees"],self.ftrack_data[gid]["status"],self.ftrack_data[gid]["date"]])
-
+            cells = [self.ftrack_data[gid]["assignees"],self.ftrack_data[gid]["status"],self.ftrack_data[gid]["date"]]
+            #self.update_value(gid,srange,[self.ftrack_data[gid]["assignees"],self.ftrack_data[gid]["status"],self.ftrack_data[gid]["date"]])
         elif self.ftrack_data[gid]["spreadsheet_type"] == "geral":
+
             task_line = self.findTask(gid,self.ftrack_data[gid]["task"],line)
-            
             if task_line is None:
                 line = self.findTaskPosition(gid,self.ftrack_data[gid]["task"],self.ftrack_data[gid]["shot"],start_at=line)
                 self.insertEmptyRow(gid,line)
@@ -249,10 +268,13 @@ class ShotsSheet():
 
             srange = self.xl_rowcol_to_cell(line,self.shotsCol) + ":" + self.xl_rowcol_to_cell(line,self.dueDate)
             cells = [self.ftrack_data[gid]["shot"],self.ftrack_data[gid]["fps"],self.ftrack_data[gid]["assignees"],self.ftrack_data[gid]["task"],self.ftrack_data[gid]["status"],self.ftrack_data[gid]["task_type"],self.ftrack_data[gid]["description"],self.ftrack_data[gid]["start"],self.ftrack_data[gid]["end"]]
-            self.update_value(gid,srange,cells)
+        
+        else:
+            return -3
 
+        self.update_value(gid,srange,cells)
 
-        return
+        return 0
 
 
     def getCredentials(self):

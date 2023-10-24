@@ -249,6 +249,16 @@ def checkGoogleForChanges(session):
 	return
 
 
+def warnProduction(message,users):
+
+	for user in users:
+
+		# Create a new message and send it
+		new_message = session.create('Note', {'content': message,'user': user})
+	
+	session.commit()
+
+
 def my_callback(event):
 	
 	'''Event callback printing all new or updated entities.'''
@@ -281,11 +291,11 @@ def my_callback(event):
 								downloadVersion(version["id"],shot["name"])
 
 						data = {"shot": shot["name"],"task":task["name"].split("_")[-1].lower(),"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID"),"sheet_name":"Shots","spreadsheet_type": "animation"}
-						googleSheet.setShotStatus(data)
+						result = googleSheet.setShotStatus(data)
 					elif task["name"] in ["03_Render","07_Render","10_Comp","07_Comp","10.01_Comp"]:
 
 						data = {"shot": shot["name"],"task":task["name"].split("_")[-1].lower(),"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID2"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"render"}
-						googleSheet.setShotStatus(data)
+						result = googleSheet.setShotStatus(data)
 
 					data = {"shot": shot["name"],"task":task["name"],"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID3"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"geral","description":task["description"],"task_type":task["type"]["name"]}
 					
@@ -295,8 +305,12 @@ def my_callback(event):
 					
 					data["start"] = task["start_date"].format("YYYY-MM-DD") if task["start_date"] is not None else ""
 					data["end"] = task["end_date"].format("YYYY-MM-DD") if task["end_date"] is not None else ""
-					googleSheet.setShotStatus(data)
-
+					
+					result = googleSheet.setShotStatus(data)
+					if result == -1:
+						users = getUsers(["Dir Studio Z"])
+						message = "Ola! parece que um erro ocorreu com o script do Ftrack events durante o acesso as planilhas do Google. É provavel que seja hora de atualizar o token."
+						warnProduction(message,users)
 
 def assignUser(task,user,commit = True):
 
@@ -343,16 +357,18 @@ def getUsers(userlist):
 	if len(userlist) == 0:
 		return []
 
-	print('User where username in ("{0}")'.format("\",\"".join(userlist)))
-
 	# Initialize a list to store the matching users
 	matching_users = []
 
 	# Loop through the list of user full names and query users based on each name
 	for full_name in userlist:
-		first_name, last_name = full_name.split(" ")  # Split the full name into first name and last name
+
+		first_name = full_name.split(" ")[0]
+		last_name = " ".join(full_name.split(" ")[1:])
+
 		user = session.query('User where first_name is "{}" and last_name is "{}"'.format(first_name, last_name)).all()
 		if len(user) > 0:
+			print(user)
 			matching_users.append(user[0])
 
 	return matching_users
@@ -373,6 +389,7 @@ def getAssignee(task):
 if __name__ == '__main__':
 
 	try:	
+		
 		# Subscribe to events with the update topic.
 		print("Starting Ftrack events listener...")
 		session = fa.Session(auto_connect_event_hub=True)
@@ -395,7 +412,9 @@ if __name__ == '__main__':
 		session.event_hub.subscribe('topic=ftrack.update', my_callback)
 		# Wait for events to be received and handled.
 		session.event_hub.wait()
+
 	except KeyboardInterrupt:
+	    
 	    # Catch Ctrl+C to gracefully exit
 	    print("Stopping child thread...")
 	    session.close()
