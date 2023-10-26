@@ -8,6 +8,7 @@ import traceback
 import tempfile
 import copy
 import ftrack_api as fa
+import arrow
 from dotenv import load_dotenv
 #Load the environment variables
 load_dotenv()
@@ -259,6 +260,60 @@ def warnProduction(message,users):
 	session.commit()
 
 
+
+def my_recovery_callback(event):
+
+	if event['action'] == 'change.status.task' and event["parent_type"] == "task":
+
+		task = session.get('TypedContext', event['parent_id'])
+		shot = task["parent"]
+		status = getEntityById("Status",event["data"]["statusid"]["new"])
+		executeActions(shot,task,status,saveTimestamp = False)
+
+	return
+
+
+def executeActions(shot,task,status,saveTimestamp = True):
+
+	assignees = ",".join(getAssignee(task))
+	status_changes = sorted(task["status_changes"], key=lambda d: d['date'])					
+	if task["name"] in ["03_3D_Blocking","04_3D_Polish"]:
+
+		if status["name"] in ["Hum Review","Alan Review","Pending Review","Hum Approved"]:
+			versions = session.query('AssetVersion where task_id is "{0}"'.format(task["id"])).all()
+			print("found {0} assetVersions for this task!".format(len(versions)))
+			if len(versions) > 0:
+				version = versions[-1]
+				downloadVersion(version["id"],shot["name"])
+
+		data = {"shot": shot["name"],"task":task["name"].split("_")[-1].lower(),"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID"),"sheet_name":"Shots","spreadsheet_type": "animation"}
+		result = googleSheet.setShotStatus(data)
+	elif task["name"] in ["03_Render","07_Render","10_Comp","07_Comp","10.01_Comp"]:
+
+		data = {"shot": shot["name"],"task":task["name"].split("_")[-1].lower(),"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID2"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"render"}
+		result = googleSheet.setShotStatus(data)
+
+	data = {"shot": shot["name"],"task":task["name"],"status":status["name"],"spreadsheet_id":os.getenv("SPREADSHEET_ID3"),"sheet_name":"Shots","assignees":assignees,"date": status_changes[-1]["date"].format("YYYY-MM-DD"),"spreadsheet_type":"geral","description":task["description"],"task_type":task["type"]["name"]}
+
+	fstart = shot["custom_attributes"]["fstart"] if shot["custom_attributes"]["fstart"] is not None else 0
+	fend = shot["custom_attributes"]["fend"] if shot["custom_attributes"]["fend"] is not None else 1
+	data["fps"] = fend - fstart + 1
+
+	data["start"] = task["start_date"].format("YYYY-MM-DD") if task["start_date"] is not None else ""
+	data["end"] = task["end_date"].format("YYYY-MM-DD") if task["end_date"] is not None else ""
+
+	result = googleSheet.setShotStatus(data)
+	if result == -1:
+		users = getUsers(["Dir Studio Z"])
+		message = "Ola! parece que um erro ocorreu com o script do Ftrack events durante o acesso as planilhas do Google. É provavel que seja hora de atualizar o token."
+		warnProduction(message,users)
+
+	if saveTimestamp:
+		now = arrow.now()
+		saveTxtFile("last_timestamp.txt",now.format("YYYY-MM-DD HH:mm:ss"))
+
+	return
+
 def my_callback(event):
 	
 	'''Event callback printing all new or updated entities.'''
@@ -276,11 +331,16 @@ def my_callback(event):
 					isShot = True
 				task = getEntityById("Task",entity["entityId"])
 
+
+				
 				if entity["changes"] is not None and "statusid" in entity["changes"]:
 					status = getEntityById("Status",entity["changes"]["statusid"]['new'])
-					assignees = ",".join(getAssignee(task))
-					status_changes = sorted(task["status_changes"], key=lambda d: d['date'])
 					print("New status Change detected: " + str(entity["changes"]["statusid"]))
+					executeActions(shot,task,status)
+
+					'''
+					assignees = ",".join(getAssignee(task))
+					status_changes = sorted(task["status_changes"], key=lambda d: d['date'])					
 					if task["name"] in ["03_3D_Blocking","04_3D_Polish"]:
 
 						if status["name"] in ["Hum Review","Alan Review","Pending Review","Hum Approved"]:
@@ -312,6 +372,10 @@ def my_callback(event):
 						message = "Ola! parece que um erro ocorreu com o script do Ftrack events durante o acesso as planilhas do Google. É provavel que seja hora de atualizar o token."
 						warnProduction(message,users)
 
+					now = arrow.now()
+					saveTxtFile("last_timestamp.txt",now.format("YYYY-MM-DD HH:mm:ss"))
+					'''
+
 def assignUser(task,user,commit = True):
 
 	# Create a new Appointment of type assignment.
@@ -334,7 +398,7 @@ def readTxtFile(txtName):
 			content = f.read()
 	return content
 
-def saveTxtFile(txtName,data):
+def saveTxtFile(txtName,data,replace = False):
 
 	temp = os.path.join(tempfile.gettempdir(),"ftrack_temp_files")
 
@@ -343,7 +407,7 @@ def saveTxtFile(txtName,data):
 
 	temp_file = os.path.join(temp,txtName)
 	edit_mode = "w"
-	if os.path.exists(temp_file):
+	if os.path.exists(temp_file) and not replace:
 		edit_mode = "a"
 
 	with open(temp_file,edit_mode) as f:
@@ -385,6 +449,24 @@ def getAssignee(task):
 		assignees.append(str(user['first_name']) + " " + str(user['last_name']))
 	return assignees
 
+def searchForMissingChanges():
+
+	last_timestamp = readTxtFile("last_timestamp.txt")
+	print(last_timestamp)
+	if len(last_timestamp) > 0:
+		last_timestamp = arrow.get(last_timestamp, "YYYY-MM-DD HH:mm:ss") 
+		day = last_timestamp.format("YYYY-MM-DD")
+
+		events=session.query('select parent_id from Event where action is "change.status.task" and '    'insert is "update" and created_at > {0}'.format(day))
+		for event in events:
+			if event["created_at"] > last_timestamp:
+				my_recovery_callback(event)
+
+			break   
+
+
+	return
+
 
 if __name__ == '__main__':
 
@@ -405,13 +487,22 @@ if __name__ == '__main__':
 		#t3.start()
 
 		# Create a flag to signal the child thread to exit
-		exit_flag = threading.Event()
-		t4 = threading.Thread(target=checkGoogleForChanges,args=(session,))
-		t4.start()
+		#exit_flag = threading.Event()
+		#t4 = threading.Thread(target=checkGoogleForChanges,args=(session,))
+		#t4.start()
 
-		session.event_hub.subscribe('topic=ftrack.update', my_callback)
+		#session.event_hub.subscribe('topic=ftrack.update', my_callback)
 		# Wait for events to be received and handled.
-		session.event_hub.wait()
+		#session.event_hub.wait()
+
+		# Define the last moment your script was on (replace with your recorded timestamp)
+		last_timestamp = "2023-10-25T00:00:00Z"
+		timestamp_arrow = arrow.get(last_timestamp, "YYYY-MM-DDTHH:mm:ssZ")
+		#print(len(session.query('select parent_id from Event where action is "change.status.task" and '    'insert is "update" and created_at > 2023-10-20')))
+		for event in session.query('select parent_id from Event where action is "change.status.task" and '    'insert is "update" and created_at > 2023-10-25'):   
+
+			task = session.get('TypedContext', event['parent_id'])
+			print(task["parent"]["name"])
 
 	except KeyboardInterrupt:
 	    
