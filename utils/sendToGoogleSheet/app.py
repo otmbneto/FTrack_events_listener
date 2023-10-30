@@ -33,8 +33,10 @@ class ShotsSheet():
 
         self.ftrack_data[input_data["spreadsheet_id"]] = input_data
         #self.google_data[input_data["spreadsheet_id"]] = self.sheet.values().get(spreadsheetId = self.ftrack_data[input_data["spreadsheet_id"]]["spreadsheet_id"],range = self.ftrack_data[input_data["spreadsheet_id"]]["sheet_name"]).execute()["values"]
-        self.google_data[input_data["spreadsheet_id"]] = self.getSpreadsheetsValues(self.ftrack_data[input_data["spreadsheet_id"]]["spreadsheet_id"],self.ftrack_data[input_data["spreadsheet_id"]]["sheet_name"])
-        if self.google_data[input_data["spreadsheet_id"]] is not None:
+        
+        values = self.getSpreadsheetsValues(self.ftrack_data[input_data["spreadsheet_id"]]["spreadsheet_id"],self.ftrack_data[input_data["spreadsheet_id"]]["sheet_name"])
+        if values is not None:
+            self.google_data[input_data["spreadsheet_id"]] = values["values"]
             self.getImportantCollumns(input_data["spreadsheet_id"])
             return input_data["spreadsheet_id"]
 
