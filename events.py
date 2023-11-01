@@ -457,32 +457,18 @@ if __name__ == '__main__':
 		#t3 = threading.Thread(target=getGeneralTaskInfo,args=(session,))
 		#t3.start()
 
-		# Create a flag to signal the child thread to exit
-		#exit_flag = threading.Event()
-		#t4 = threading.Thread(target=checkGoogleForChanges,args=(session,))
-		#t4.start()
-
 		#try to recover changes that ocurred when the script was offline.
-		#searchForMissingChanges(session)
+		searchForMissingChanges(session)		
 
-		#session.event_hub.subscribe('topic=ftrack.update', my_callback)
+		# Create a flag to signal the child thread to exit
+		exit_flag = threading.Event()
+		t4 = threading.Thread(target=checkGoogleForChanges,args=(session,))
+		t4.start()
+
+		session.event_hub.subscribe('topic=ftrack.update', my_callback)
 		# Wait for events to be received and handled.
-		#session.event_hub.wait()
+		session.event_hub.wait()
 
-		#users = getUsers(["Dir Studio Z"])
-		#author = users[0]
-		#category = session.query('NoteCategory where name is "Internal"').first()
-		#message = "Ola! parece que um erro ocorreu com o script do Ftrack events durante o acesso as planilhas do Google. É provavel que seja hora de atualizar o token."
-		#warnProduction(message,category,users,author)
-
-		# Define the last moment your script was on (replace with your recorded timestamp)
-		#last_timestamp = "2023-10-25T00:00:00Z"
-		#timestamp_arrow = arrow.get(last_timestamp, "YYYY-MM-DDTHH:mm:ssZ")
-		#print(len(session.query('select parent_id from Event where action is "change.status.task" and '    'insert is "update" and created_at > 2023-10-20')))
-		#for event in session.query('select parent_id from Event where action is "change.status.task" and '    'insert is "update" and created_at > 2023-10-25'):   
-
-		#	task = session.get('TypedContext', event['parent_id'])
-		#	print(task["parent"]["name"])
 
 	except KeyboardInterrupt:
 	    
